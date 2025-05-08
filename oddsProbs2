@@ -1,0 +1,174 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def monte_carlo_simulation(odds, probability_of_winning, num_simulations, years, initial_capital, bet_percentage):
+    """
+    Simulates a series of binary bets to estimate the final portfolio value.
+
+    Args:
+        odds (float): The odds for each bet.
+        probability_of_winning (float): The probability of winning each bet.
+        num_simulations (int): Number of Monte Carlo simulations.
+        years (int): Number of years to simulate.
+        initial_capital (float): Initial capital.
+        bet_percentage (float): Percentage of capital bet per period.
+
+    Returns:
+        np.ndarray: Array of final portfolio values.
+    """
+    final_portfolios = np.zeros(num_simulations)
+    for i in range(num_simulations):
+        capital = initial_capital
+        for _ in range(years):
+            bet_amount = capital * bet_percentage
+            if np.random.random() < probability_of_winning:
+                capital += bet_amount * (odds - 1)
+            else:
+                capital -= bet_amount
+        final_portfolios[i] = capital
+    return final_portfolios
+
+def calculate_expected_return(odds, probability_of_winning, initial_capital, years):
+    """
+    Calculates the expected return of the betting strategy.
+
+    Args:
+        odds (float): The odds for each bet.
+        probability_of_winning (float): The probability of winning each bet.
+        initial_capital (float): Initial capital.
+        years (int): Number of years
+
+    Returns:
+        float: Expected return (CAGR).
+    """
+    ev_per_bet = (probability_of_winning * (odds - 1)) - (1 - probability_of_winning)
+    expected_final_value = initial_capital * (1 + ev_per_bet) ** years
+    cagr = (expected_final_value / initial_capital) ** (1 / years) - 1
+    return cagr
+
+def calculate_volatility_drag(final_portfolios, initial_capital, years):
+    """
+    Estimates volatility drag from the Monte Carlo simulation results.
+
+    Args:
+        final_portfolios (np.ndarray): Array of final portfolio values.
+        initial_capital (float): Initial Capital
+        years (int): Number of years
+
+    Returns:
+        float: Volatility drag (in CAGR terms).
+    """
+    arithmetic_mean_return = np.mean(final_portfolios)
+    cagr_simulations = (final_portfolios / initial_capital) ** (1 / years) - 1
+    geometric_mean_return = np.mean(cagr_simulations)
+    volatility_drag = (arithmetic_mean_return / initial_capital) ** (1/years) - 1 - geometric_mean_return
+    return volatility_drag
+
+def optimize_odds_and_probability(target_cagr, initial_capital, years, num_simulations, bet_percentage):
+    """
+    Optimizes odds and probability of winning to maximize adjusted return (expected return - volatility drag)
+    and generates data for a heatmap.
+
+    Args:
+        target_cagr (float): The target CAGR.
+        initial_capital (float): The initial capital.
+        years (int): The number of years to simulate.
+        num_simulations (int): Number of Monte Carlo simulations.
+        bet_percentage (float): Percentage of capital to bet.
+
+    Returns:
+        tuple: A tuple containing:
+            - dict: A dictionary containing the optimal odds, probability of winning, expected return (CAGR),
+                  volatility drag (CAGR), and adjusted return (CAGR).
+            - pd.DataFrame: A DataFrame containing the volatility-adjusted CAGRs for all
+                  combinations of odds and probabilities.
+    """
+    best_adjusted_return = -np.inf
+    best_odds = None
+    best_probability = None
+    best_expected_return = None
+    best_volatility_drag = None
+
+    # Define a reasonable range for odds and probability
+    odds_range = np.arange(1.1, 5, 0.1)  # Odds from 1.1 to 3.0
+    probability_range = np.arange(0.25, 0.75, 0.05)  # Probability from 0.5 to 0.95
+
+    # Create a DataFrame to store the results for the heatmap
+    heatmap_data = pd.DataFrame(index=odds_range, columns=probability_range)
+
+    for odds in odds_range:
+        for probability in probability_range:
+            expected_return = calculate_expected_return(odds, probability, initial_capital, years)
+            if expected_return >= target_cagr:  # Only consider combinations that meet the target
+                final_portfolios = monte_carlo_simulation(odds, probability, num_simulations, years, initial_capital,
+                                                             bet_percentage)
+                volatility_drag = calculate_volatility_drag(final_portfolios, initial_capital, years)
+                adjusted_return = expected_return - volatility_drag
+                heatmap_data.loc[odds, probability] = adjusted_return
+                if adjusted_return > best_adjusted_return:
+                    best_adjusted_return = adjusted_return
+                    best_odds = odds
+                    best_probability = probability
+                    best_expected_return = expected_return
+                    best_volatility_drag = volatility_drag
+            else:
+                heatmap_data.loc[odds, probability] = -np.inf
+
+    if best_odds is not None:
+        best_results = {
+            "odds": best_odds,
+            "probability": best_probability,
+            "expected_return": best_expected_return,
+            "volatility_drag": best_volatility_drag,
+            "adjusted_return": best_adjusted_return,
+        }
+        return best_results, heatmap_data
+    else:
+        return None, heatmap_data  # No combination met the target
+
+def print_optimization_results(results, target_cagr):
+    """
+    Prints the results of the optimization.
+
+    Args:
+        results (dict): A dictionary containing the optimization results.
+        target_cagr (float): The target CAGR.
+    """
+    if results:
+        print(f"Optimization Results (Target CAGR: {target_cagr:.2%} ):")
+        print(f"  Optimal Odds: {results['odds']:.2f}")
+        print(f"  Optimal Probability of Winning: {results['probability']:.2f}")
+        print(f"  Expected Return (CAGR): {results['expected_return']:.2%}")
+        print(f"  Volatility Drag (CAGR): {results['volatility_drag']:.2%}")
+        print(f"  Adjusted Return (CAGR): {results['adjusted_return']:.2%}")
+    else:
+        print(f"No combination of odds and probability met the target CAGR of {target_cagr:.2%}")
+
+def plot_heatmap(heatmap_data, target_cagr):
+    """
+    Plots a heatmap of volatility-adjusted CAGRs.
+
+    Args:
+        heatmap_data (pd.DataFrame): DataFrame containing the volatility-adjusted CAGRs.
+        target_cagr (float): The target CAGR.
+    """
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(heatmap_data.astype(float), annot=True, fmt=".2%", cmap="viridis", vmin=0, vmax=heatmap_data.max().max())
+    plt.title(f"Volatility-Adjusted CAGR (Target CAGR: {target_cagr:.2%})")
+    plt.xlabel("Probability of Winning")
+    plt.ylabel("Odds")
+    plt.show()
+
+if __name__ == "__main__":
+    # Parameters
+    initial_capital = 10000
+    years = 10
+    num_simulations = 10000
+    bet_percentage = 0.1  # 10% bet size
+    target_cagr = 0.08  # 8% target CAGR
+
+    results, heatmap_data = optimize_odds_and_probability(target_cagr, initial_capital, years, num_simulations, bet_percentage)
+    print_optimization_results(results, target_cagr)
+    plot_heatmap(heatmap_data, target_cagr)
