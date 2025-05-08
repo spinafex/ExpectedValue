@@ -1,0 +1,139 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+def monte_carlo_simulation(odds, probability_of_winning, num_simulations, years, initial_capital, bet_percentage):
+    """
+    Simulates a series of binary bets to estimate the final portfolio value.
+
+    Args:
+        odds (float): The odds for each bet.
+        probability_of_winning (float): The probability of winning each bet.
+        num_simulations (int): Number of Monte Carlo simulations.
+        years (int): Number of years to simulate.
+        initial_capital (float): Initial capital.
+        bet_percentage (float): Percentage of capital bet per period.
+
+    Returns:
+        np.ndarray: Array of final portfolio values.
+    """
+    final_portfolios = np.zeros(num_simulations)
+    for i in range(num_simulations):
+        capital = initial_capital
+        for _ in range(years):
+            bet_amount = capital * bet_percentage
+            win = np.random.random() < probability_of_winning
+            if win:
+                capital += bet_amount * (odds - 1)
+            else:
+                capital -= bet_amount
+            final_portfolios[i] = capital
+    return final_portfolios
+
+def calculate_expected_return(odds, probability_of_winning, initial_capital, years):
+    """
+    Calculates the expected return (CAGR) of the betting strategy.
+
+    Args:
+        odds (float): The odds for each bet.
+        probability_of_winning (float): The probability of winning each bet.
+        initial_capital (float): Initial capital.
+        years (int): Number of years
+
+    Returns:
+        float: Expected return (CAGR).
+    """
+    ev_per_bet = (probability_of_winning * (odds - 1)) - (1 - probability_of_winning)
+    expected_final_value = initial_capital * (1 + ev_per_bet) ** years
+    cagr = (expected_final_value / initial_capital) ** (1 / years) - 1
+    return cagr
+
+def calculate_volatility_drag(final_portfolios, initial_capital, years):
+    """
+    Estimates volatility drag from the Monte Carlo simulation results.
+
+    Args:
+        final_portfolios (np.ndarray): Array of final portfolio values.
+        initial_capital (float): Initial Capital
+        years (int): Number of years
+
+    Returns:
+        float: Volatility drag (in CAGR terms).
+    """
+    arithmetic_mean_return = np.mean(final_portfolios)
+    cagr_simulations = (final_portfolios / initial_capital) ** (1 / years) - 1
+    geometric_mean_return = np.mean(cagr_simulations)
+    volatility_drag = (arithmetic_mean_return / initial_capital) ** (1/years) - 1 - geometric_mean_return
+    return volatility_drag
+
+def calculate_adjusted_cagr(odds, probability_of_winning, initial_capital, years, num_simulations, bet_percentage):
+    """
+    Calculates the volatility-adjusted CAGR.
+
+    Args:
+        odds (float): The odds for each bet.
+        probability_of_winning (float): The probability of winning each bet.
+        initial_capital (float): Initial capital.
+        years (int): The number of years to simulate.
+        num_simulations (int): Number of Monte Carlo simulations.
+        bet_percentage (float): Percentage of capital to bet.
+
+    Returns:
+        float: The volatility-adjusted CAGR.
+    """
+    expected_return = calculate_expected_return(odds, probability_of_winning, initial_capital, years)
+    final_portfolios = monte_carlo_simulation(odds, probability_of_winning, num_simulations, years, initial_capital,
+                                                 bet_percentage)
+    volatility_drag = calculate_volatility_drag(final_portfolios, initial_capital, years)
+    adjusted_cagr = expected_return - volatility_drag
+    return adjusted_cagr
+
+def plot_odds_vs_probability_for_target_cagr(initial_capital, years, num_simulations, bet_percentage, target_cagr=1.0):
+    """
+    Plots the relationship between odds and probability of winning for a fixed target adjusted CAGR.
+
+    Args:
+        initial_capital (float): The initial capital.
+        years (int): The number of years to simulate.
+        num_simulations (int): Number of Monte Carlo simulations.
+        bet_percentage (float): Percentage of capital to bet.
+        target_cagr (float, optional): The target adjusted CAGR (default: 1.0 for 100%).
+    """
+    odds_range = np.arange(2.1, 10.01, 0.01)  # Odds range
+    probabilities = []
+
+    for odds in odds_range:
+        # Find the probability that results in the target adjusted CAGR
+        def objective_function(p):
+            return abs(calculate_adjusted_cagr(odds, p, initial_capital, years, num_simulations, bet_percentage) - target_cagr)
+
+        # Use a simple search to find the probability.  For a more robust solution, you could use scipy.optimize
+        best_p = None
+        min_error = float('inf')
+        for p in np.arange(0.05, 0.75, 0.01):
+            error = objective_function(p)
+            if error < min_error:
+                min_error = error
+                best_p = p
+        if best_p is not None:
+            probabilities.append(best_p)
+        else:
+            probabilities.append(np.nan)  # Append NaN if no suitable probability is found
+
+    # Plotting
+    plt.figure(figsize=(10, 6))
+    plt.plot(odds_range, probabilities, marker='o', linestyle='-', markersize=4)
+    plt.xlabel('Odds')
+    plt.ylabel('Probability of Winning')
+    plt.title(f'Odds vs. Probability for Adjusted CAGR = {target_cagr * 100:.2f}%')
+    plt.grid(True)
+    plt.show()
+
+if __name__ == "__main__":
+    # Parameters
+    initial_capital = 10000
+    years = 10
+    num_simulations = 50
+    bet_percentage = 0.1  # 10% bet size
+    target_cagr = 1.0  # 100% target adjusted CAGR
+
+    plot_odds_vs_probability_for_target_cagr(initial_capital, years, num_simulations, bet_percentage, target_cagr)
